@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="robots" content="noindex"><title>ICS/OT Security Lab: Rockwell 1794-AENTR | The Hybrid Automation Blueprint</title><link rel="stylesheet" href="style.css"></head><body><nav class="top" aria-label="Site"><a href="index.html">Home</a><a href="index.html#book">Book</a><a href="index.html#labs">Lab documents</a><span class="sp"></span><button id="t" type="button" aria-label="Toggle dark mode">☾ Dark</button></nav><main><p class="sub">Lab document 5 of 5</p><h1>ICS/OT Security Lab: Rockwell 1794-AENTR</h1><p class="sub">Rockwell Automation 1794-AENTR Flex I/O adapter · Raspberry Pi / Kali Linux · Lab guide, network baseline, reconnaissance, packet analysis · Revised and reformatted edition</p><div class="tw"><table><thead><tr><th>Lab component</th><th>Configuration</th></tr></thead><tbody><tr><td>1794-AENTR</td><td>192.168.169.60</td></tr><tr><td>Raspberry Pi / Kali</td><td>192.168.169.100/24</td></tr><tr><td>Primary services</td><td>HTTP / TCP 80 · EtherNet/IP / TCP 44818</td></tr><tr><td>Capture file</td><td>1794_AENTR_DoS.pcapng</td></tr></tbody></table></div>
+<blockquote>Purpose. This guide documents an isolated OT laboratory used to understand EtherNet/IP behavior, establish a communication baseline, perform controlled reconnaissance, capture network traffic, and analyze device responses.</blockquote>
+<blockquote>Safety boundary. Perform all testing only on equipment you own or are explicitly authorized to test. Keep the lab physically and logically isolated from production, corporate, and home networks.</blockquote>
+<h2>1. Project Overview</h2>
+<p>This project builds a small, isolated ICS/OT security laboratory around a Rockwell Automation 1794-AENTR Flex I/O Ethernet adapter and a Raspberry Pi running Kali Linux. The lab is designed for repeatable observation and analysis rather than testing against production equipment.</p>
+<h3>Learning objectives</h3>
+<ul><li>Verify communication and establish normal device behavior.</li><li>Perform disciplined reconnaissance using controlled discovery and passive capture.</li><li>Conduct non-destructive laboratory exercises and observe device/network responses.</li><li>Capture packet traces, logs, and device state for analysis.</li><li>Produce reproducible findings with evidence, limitations, and mitigation recommendations.</li></ul>
+<h3>Scope</h3>
+<div class="tw"><table><thead><tr><th>In scope</th><th>Out of scope</th></tr></thead><tbody><tr><td>1794-AENTR and optional Flex I/O modules with dummy/isolated loads</td><td>Production PLCs or control systems</td></tr><tr><td>Raspberry Pi running Kali Linux</td><td>Remote or third-party networks</td></tr><tr><td>Nmap, Wireshark, Scapy, pycomm3 and local Python environment</td><td>Equipment not owned or explicitly authorized</td></tr><tr><td>Packet captures and lab-generated test traffic</td><td>Safety-critical or live process manipulation</td></tr></tbody></table></div>
+<p>The source document contained terminal prompts, notebook output, and copied console artifacts. This edition separates those from executable commands to prevent accidental copy/paste into Python.</p>
+<h2>2. Hardware &amp; Software</h2>
+<h3>Hardware checklist</h3>
+<ul><li>Rockwell Automation 1794-AENTR Flex I/O Ethernet adapter.</li><li>Optional Flex I/O modules; keep outputs isolated or connected only to appropriate dummy loads.</li><li>Raspberry Pi with Kali Linux and a wired Ethernet connection.</li><li>24 VDC power supply appropriate for the hardware.</li><li>Small unmanaged Ethernet switch, if additional lab devices are required.</li><li>Cat6 Ethernet cable.</li></ul>
+<h3>Kali Linux tools</h3>
+<div class="tw"><table><thead><tr><th>Tool</th><th>Purpose</th></tr></thead><tbody><tr><td>ip / ifconfig</td><td>Inspect and configure the lab interface.</td></tr><tr><td>ping</td><td>Verify basic IP reachability.</td></tr><tr><td>nmap</td><td>Identify exposed TCP services in the isolated lab.</td></tr><tr><td>Wireshark</td><td>Capture and inspect packets.</td></tr><tr><td>Scapy</td><td>Programmatic packet analysis.</td></tr><tr><td>pycomm3</td><td>Python-based EtherNet/IP experimentation where supported.</td></tr><tr><td>Python venv</td><td>Keep Python dependencies isolated from the system environment.</td></tr></tbody></table></div>
+<h2>3. Network Plan &amp; Baseline</h2>
+<p>Use a dedicated, isolated IPv4 network. The source lab uses 192.168.169.0/24.</p>
+<div class="tw"><table><thead><tr><th>Device</th><th>IP address</th><th>Subnet mask</th><th>Role</th></tr></thead><tbody><tr><td>1794-AENTR</td><td>192.168.169.60</td><td>255.255.255.0</td><td>Target Flex I/O Ethernet adapter</td></tr><tr><td>Raspberry Pi / Kali</td><td>192.168.169.100</td><td>255.255.255.0</td><td>Engineering / security workstation</td></tr></tbody></table></div>
+<h3>Configure the Kali Ethernet interface</h3>
+<pre>sudo ip addr flush dev eth0
+sudo ip addr add 192.168.169.100/24 dev eth0
+sudo ip link set dev eth0 up
+ip addr show dev eth0</pre>
+<h3>Verify connectivity</h3>
+<pre>ping -c 4 192.168.169.60</pre>
+<p>Expected result: replies from 192.168.169.60 with no packet loss under normal lab conditions.</p>
+<h3>Device web interface</h3>
+<p>The source lab documents the adapter at http://192.168.169.60. Use configured credentials and the manufacturer&#x27;s documentation for authentication and configuration.</p>
+<h2>4. Python Environment</h2>
+<p>Create a dedicated Python virtual environment on Kali so project dependencies do not interfere with the operating system&#x27;s Python installation.</p>
+<pre>python3 -m venv myenv
+source myenv/bin/activate
+python3 --version
+pip --version</pre>
+<p>When copying commands from PDFs or web pages, copy only the command itself, not terminal prompts or notebook output. This avoids errors such as &quot;invalid character&quot; and &quot;invalid decimal literal.&quot;</p>
+<p>The source material contains Unicode box-drawing characters and non-printable characters mixed into copied code. Python can report errors such as U+00A0 or U+2500. Re-enter commands in a plain-text editor when necessary.</p>
+<h2>5. Controlled Reconnaissance</h2>
+<p>The purpose of reconnaissance is to establish what the lab device exposes before application-level testing is performed.</p>
+<h3>Full TCP service discovery</h3>
+<pre>nmap -Pn -sS -p 1-65535 192.168.169.60</pre>
+<h3>Recorded baseline from the source lab</h3>
+<div class="tw"><table><thead><tr><th>Port</th><th>State</th><th>Service</th></tr></thead><tbody><tr><td>80/tcp</td><td>open</td><td>HTTP</td></tr><tr><td>44818/tcp</td><td>open</td><td>EtherNet/IP-2</td></tr></tbody></table></div>
+<h3>Recommended evidence to retain</h3>
+<ul><li>Nmap command and timestamp.</li><li>Scan output saved to a text file.</li><li>Device firmware/configuration information where authorized.</li><li>Wireshark capture covering the baseline period.</li><li>A short description of expected device behavior.</li></ul>
+<h2>6. Wireshark Capture &amp; Observation</h2>
+<p>Use Wireshark to capture traffic on the isolated lab interface. Save the capture in PCAPNG format so the evidence can be reviewed later.</p>
+<h3>Useful display filters</h3>
+<pre>ip.addr == 192.168.169.60
+tcp.port == 80
+tcp.port == 44818
+ip.addr == 192.168.169.60 &amp;&amp; tcp</pre>
+<h3>Observe</h3>
+<ul><li>TCP connection establishment and termination.</li><li>HTTP request/response behavior on port 80.</li><li>EtherNet/IP traffic on TCP 44818.</li><li>Retransmissions, resets, connection rates, and timing.</li><li>Any change in device LEDs, web interface responsiveness, or communication state.</li></ul>
+<p>Do not interpret a high packet count alone as proof of a denial-of-service condition. Correlate packet counts with connection behavior, TCP flags, timing, device state, and the exact test that generated the traffic.</p>
+<h2>7. Non-Destructive Traffic Test</h2>
+<p>The source document included an unbounded multi-threaded HTTP request loop. For a reusable lab guide, it has been replaced here with a finite, rate-limited test so the exercise remains controlled and reproducible.</p>
+<h3>Bounded HTTP connectivity test</h3>
+<pre>import time
+import requests
+
+target = &quot;http://192.168.169.60&quot;
+requests_to_send = 20
+delay_seconds = 0.25
+
+for i in range(requests_to_send):
+    try:
+        response = requests.get(target, timeout=2)
+        print(f&quot;{i + 1:02d}: HTTP {response.status_code}&quot;)
+    except requests.RequestException as exc:
+        print(f&quot;{i + 1:02d}: request failed: {exc}&quot;)
+    time.sleep(delay_seconds)</pre>
+<p>This test generates a finite number of requests and stops automatically. Run it only against the isolated lab device and monitor the device and packet capture while it executes.</p>
+<h3>Stop criteria</h3>
+<ul><li>Unexpected device instability or loss of communication.</li><li>Loss of the device web interface.</li><li>Unexpected I/O behavior.</li><li>Any indication that traffic is leaving the isolated lab network.</li></ul>
+<h2>8. PCAP Analysis with Scapy</h2>
+<p>The following cleaned analysis script loads a PCAPNG file, counts packet types, summarizes packets, and identifies TCP SYN and RST flags. It is intended for offline analysis of an existing capture.</p>
+<pre>from collections import Counter
+from scapy.all import rdpcap, IP, TCP
+
+pcapng_file = &quot;/home/kali/1794_AENTR_DoS.pcapng&quot;
+max_packets = 50000
+packets = rdpcap(pcapng_file, count=max_packets)
+print(f&quot;Loaded {len(packets)} packets&quot;)
+
+protocol_counts = Counter(
+    packet.name for packet in packets if packet.name
+)
+print(&quot;\nProtocol Distribution:&quot;)
+for proto, count in protocol_counts.items():
+    print(f&quot;{proto}: {count} packets&quot;)
+
+print(&quot;\nFirst five packets:&quot;)
+for i, packet in enumerate(packets[:5], 1):
+    print(f&quot;Packet {i}: {packet.summary()}&quot;)
+
+ip_packets = [p for p in packets if p.haslayer(IP)]
+print(&quot;\nFirst five IP packets:&quot;)
+for i, packet in enumerate(ip_packets[:5], 1):
+    print(f&quot;Packet {i}: {packet[IP].src} -&gt; {packet[IP].dst}&quot;)
+
+tcp_packets = [p for p in packets if p.haslayer(TCP)]
+syn_packets = [
+    p for p in tcp_packets
+    if p[TCP].flags &amp; 0x02 and not (p[TCP].flags &amp; 0x10)
+]
+rst_packets = [
+    p for p in tcp_packets
+    if p[TCP].flags &amp; 0x04
+]
+print(f&quot;\nTCP SYN packets: {len(syn_packets)}&quot;)
+print(f&quot;TCP RST packets: {len(rst_packets)}&quot;)</pre>
+<h2>9. Recorded Results from the Source Lab</h2>
+<p>The source 18-page document contains several captured analysis results. They are preserved below in a cleaner form.</p>
+<div class="tw"><table><thead><tr><th>Metric</th><th>Recorded value</th></tr></thead><tbody><tr><td>Packets loaded</td><td>50,000</td></tr><tr><td>Protocol distribution shown</td><td>Ethernet: 50,000 packets</td></tr><tr><td>TCP SYN packets</td><td>6,070 in the first analysis</td></tr><tr><td>EtherNet/IP packets detected by the Scapy filter</td><td>0</td></tr><tr><td>TCP RST packets</td><td>1,724 in the second analysis</td></tr><tr><td>HTTP GET requests detected</td><td>0 in the second analysis</td></tr></tbody></table></div>
+<blockquote>Important interpretation. The source analysis reported 6,070 SYN packets in one calculation, while a later calculation reported zero SYN packets because its flag expression was incorrect. The zero value should therefore not be treated as proof that no SYN traffic existed. Validate packet-flag logic before drawing conclusions.</blockquote>
+<blockquote>The source Scapy filter also reported zero packets with an ENIP layer. This may reflect dissector/layer behavior rather than absence of EtherNet/IP traffic. Validate with Wireshark and appropriate protocol filters.</blockquote>
+<h2>10. Targeted Packet Analysis</h2>
+<p>The source document analyzed packets destined for 192.168.169.100. That address is the Kali host, not the 1794-AENTR target at 192.168.169.60. This edition corrects the target selection.</p>
+<h3>Correct target selection</h3>
+<pre>target_ip = &quot;192.168.169.60&quot;
+target_packets = [
+    p for p in packets
+    if p.haslayer(IP) and p[IP].dst == target_ip
+]
+print(f&quot;Packets targeting {target_ip}: {len(target_packets)}&quot;)</pre>
+<p>For target-focused analysis, always verify the destination IP before interpreting packet counts as device-directed traffic.</p>
+<div class="tw"><table><thead><tr><th>Evidence</th><th>What to document</th></tr></thead><tbody><tr><td>Destination IP</td><td>Confirm traffic is directed at the 1794-AENTR.</td></tr><tr><td>Destination port</td><td>Separate HTTP/80 from EtherNet/IP/44818 and other services.</td></tr><tr><td>TCP flags</td><td>SYN, SYN/ACK, ACK, FIN, RST and timing.</td></tr><tr><td>Packet rate</td><td>Packets per second during baseline and test intervals.</td></tr><tr><td>Device response</td><td>Connectivity, web UI, LEDs, I/O behavior and logs.</td></tr></tbody></table></div>
+<h2>11. Visualization &amp; Reporting</h2>
+<h3>Protocol distribution</h3>
+<pre>import matplotlib.pyplot as plt
+
+plt.bar(protocol_counts.keys(), protocol_counts.values())
+plt.title(&quot;Protocol Distribution in PCAP&quot;)
+plt.xlabel(&quot;Protocol&quot;)
+plt.ylabel(&quot;Number of Packets&quot;)
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()</pre>
+<p>A useful report should include the capture filename, capture duration, packet count, filters used, key observations, and screenshots or exported graphs where appropriate.</p>
+<h3>Recommended report structure</h3>
+<ul><li>Test objective and authorization boundary.</li><li>Lab topology and IP addressing.</li><li>Baseline device state.</li><li>Test procedure and exact timestamps.</li><li>Packet-level observations.</li><li>Device behavior and recovery.</li><li>Evidence files: PCAPNG, terminal output, screenshots, logs.</li><li>Findings, limitations, and defensive recommendations.</li></ul>
+<h2>12. Defensive Recommendations</h2>
+<p>The lab observations can be translated into practical OT security controls.</p>
+<div class="tw"><table><thead><tr><th>Observation / risk</th><th>Defensive consideration</th></tr></thead><tbody><tr><td>HTTP management interface exposed</td><td>Restrict management access to authorized engineering/admin networks; disable unused services.</td></tr><tr><td>EtherNet/IP exposed on TCP 44818</td><td>Segment control networks and restrict who can communicate with industrial devices.</td></tr><tr><td>Unexpected connection/reset activity</td><td>Monitor connection rates and TCP anomalies; establish a baseline for normal device behavior.</td></tr><tr><td>Limited industrial-protocol visibility</td><td>Use OT-aware monitoring and validated protocol dissectors.</td></tr><tr><td>Traffic can affect device responsiveness</td><td>Use rate limits, bounded tests, dummy loads, and explicit stop criteria.</td></tr><tr><td>Flat lab segment</td><td>For advanced exercises, introduce controlled segmentation between engineering, supervisory, and field networks.</td></tr></tbody></table></div>
+<blockquote>OT principle. Availability and safety take priority over experimentation. Security testing on industrial equipment should be planned around process impact, recovery capability, authorization, and evidence collection.</blockquote>
+<h2>Appendix A: Clean Command Reference</h2>
+<pre># Network configuration
+sudo ip addr flush dev eth0
+sudo ip addr add 192.168.169.100/24 dev eth0
+sudo ip link set dev eth0 up
+ip addr show dev eth0
+
+# Connectivity
+ping -c 4 192.168.169.60
+
+# Python environment
+python3 -m venv myenv
+source myenv/bin/activate
+
+# Reconnaissance, isolated lab only
+nmap -Pn -sS -p 1-65535 192.168.169.60
+
+# Wireshark display filters
+ip.addr == 192.168.169.60
+tcp.port == 80
+tcp.port == 44818
+ip.addr == 192.168.169.60 &amp;&amp; tcp</pre>
+<h2>Appendix B: Data Quality Notes</h2>
+<ul><li>Terminal prompts and notebook output were removed from executable code blocks.</li><li>Spelling and grammar were corrected without changing the intended lab architecture.</li><li>The unbounded HTTP flooding loop was replaced with a finite, rate-limited connectivity test.</li><li>The source target-analysis section used the Kali IP; this edition uses the 1794-AENTR IP (192.168.169.60).</li><li>Recorded results are labeled as source observations and should be reproduced before being treated as current findings.</li></ul>
+<p>Source: uploaded 18-page Project OT CyberLab 1794-AENTR document. The original overview identifies the 1794-AENTR, Raspberry Pi/Kali environment, isolated network, and lab objectives.</p><div class="pager"><a href="lab-b-assets.html">← Lab B: Physical Infrastructure &amp; Master Asset Directory</a><a href="index.html#labs">Lab documents ↑</a></div></main><footer>The Hybrid Automation Blueprint and lab documents · Version 5.0</footer><script>var r=document.documentElement,b=document.getElementById('t');function d(){var t=r.getAttribute('data-theme');return t?t=='dark':matchMedia('(prefers-color-scheme: dark)').matches}function s(){b.textContent=d()?'☀ Light':'☾ Dark'}b.onclick=function(){r.setAttribute('data-theme',d()?'light':'dark');s()};s()</script></body></html>
